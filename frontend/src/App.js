@@ -1,75 +1,358 @@
-import subprocess
-import re
-from flask import Flask, jsonify
-from flask_cors import CORS
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 
-app = Flask(__name__)
-# Allow requests from any origin, which is fine for local development.
-CORS(app)
+// --- Configuration ---
+// Make sure the Ollama server is running and accessible at this address.
+const OLLAMA_API_BASE_URL = 'http://localhost:11434';
+// The address of the small Python helper script for system stats.
+const STATS_API_BASE_URL = 'http://localhost:5001';
 
-def parse_tegrastats(line):
-    """Parses a single line of output from the tegrastats utility."""
-    stats = {}
+// --- Helper Components ---
 
-    # RAM: 1683/7762MB
-    ram_match = re.search(r"RAM (\d+)/(\d+)MB", line)
-    if ram_match:
-        stats['ram_used_mb'] = int(ram_match.group(1))
-        stats['ram_total_mb'] = int(ram_match.group(2))
-        stats['ram_used_gb'] = round(int(ram_match.group(1)) / 1024, 2)
-        stats['ram_total_gb'] = round(int(ram_match.group(2)) / 1024, 2)
+// A sleek gauge component to display system resource usage
+const ResourceGauge = ({ label, value, max, unit, color }) => {
+  const percentage = max > 0 ? (value / max) * 100 : 0;
+  const circumference = 2 * Math.PI * 45; // 45 is the radius
+  const strokeDashoffset = circumference - (percentage / 100) * circumference;
 
-    # CPU: [11%@1113,8%@1113,9%@1113,10%@1113,8%@1113,9%@1113]
-    cpu_match = re.search(r"CPU \[(.*?)\]", line)
-    if cpu_match:
-        cpu_cores = re.findall(r"(\d+)%@\d+", cpu_match.group(1))
-        if cpu_cores:
-            total_percent = sum(int(p) for p in cpu_cores)
-            stats['cpu_usage_percent'] = round(total_percent / len(cpu_cores), 2)
+  return (
+    <div className="flex flex-col items-center justify-center bg-gray-800/50 p-4 rounded-2xl shadow-lg border border-gray-700/50">
+      <div className="relative w-28 h-28">
+        <svg className="w-full h-full" viewBox="0 0 100 100">
+          {/* Background circle */}
+          <circle
+            className="text-gray-700"
+            strokeWidth="10"
+            stroke="currentColor"
+            fill="transparent"
+            r="45"
+            cx="50"
+            cy="50"
+          />
+          {/* Progress circle */}
+          <circle
+            className={`transform -rotate-90 origin-center`}
+            style={{ color }}
+            strokeWidth="10"
+            strokeDasharray={circumference}
+            strokeDashoffset={strokeDashoffset}
+            strokeLinecap="round"
+            stroke="currentColor"
+            fill="transparent"
+            r="45"
+            cx="50"
+            cy="50"
+          />
+        </svg>
+        <div className="absolute top-0 left-0 w-full h-full flex flex-col items-center justify-center">
+          <span className="text-xl font-bold text-white">{`${Math.round(value)}${unit}`}</span>
+          {max > 0 && <span className="text-xs text-gray-400">{`/ ${max}${unit}`}</span>}
+        </div>
+      </div>
+      <span className="mt-2 text-sm font-medium text-gray-300">{label}</span>
+    </div>
+  );
+};
 
-    # GR3D_FREQ 15%@114
-    gpu_match = re.search(r"GR3D_FREQ (\d+)%@\d+", line)
-    if gpu_match:
-        stats['gpu_usage_percent'] = int(gpu_match.group(1))
+// Component for displaying chat messages
+const ChatMessage = ({ message }) => {
+    const isUser = message.role === 'user';
+    return (
+        <div className={`flex items-start gap-3 my-4 ${isUser ? 'justify-end' : 'justify-start'}`}>
+             {!isUser && (
+                <div className="w-10 h-10 bg-gradient-to-br from-green-500 to-teal-500 rounded-full flex-shrink-0 flex items-center justify-center shadow-md">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 8V4H8"/><rect x="4" y="12" width="16" height="8" rx="2"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="M17 12v-2a2 2 0 0 0-2-2h-2a2 2 0 0 0-2 2v2"/></svg>
+                </div>
+            )}
+            <div className={`p-4 rounded-2xl max-w-lg ${isUser ? 'bg-blue-600/80 text-white rounded-br-none' : 'bg-gray-700/70 text-gray-200 rounded-bl-none'}`}>
+                 <p className="whitespace-pre-wrap">{message.content}</p>
+            </div>
+             {isUser && (
+                <div className="w-10 h-10 bg-gradient-to-br from-indigo-500 to-purple-500 rounded-full flex-shrink-0 flex items-center justify-center shadow-md">
+                     <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                </div>
+            )}
+        </div>
+    );
+};
 
-    # SOC_TEMP 35.5C
-    temp_match = re.search(r"SOC_TEMP (\d+\.\d+)C", line)
-    if temp_match:
-        stats['soc_temp_c'] = float(temp_match.group(1))
+// Main App Component
+export default function App() {
+  // State Management
+  const [systemStats, setSystemStats] = useState(null);
+  const [statsError, setStatsError] = useState(null);
+  const [models, setModels] = useState([]);
+  const [selectedModel, setSelectedModel] = useState('');
+  const [chatHistory, setChatHistory] = useState([]);
+  const [prompt, setPrompt] = useState('');
+  const [isStreaming, setIsStreaming] = useState(false);
+  const [pullModelName, setPullModelName] = useState('gemma:2b');
+  const [pullStatus, setPullStatus] = useState('');
+  const chatEndRef = useRef(null);
+
+  // --- API Functions ---
+
+  // Fetch system stats from our Python helper
+  const fetchStats = useCallback(async () => {
+    try {
+      const response = await fetch(`${STATS_API_BASE_URL}/api/system-stats`);
+      if (!response.ok) {
+        throw new Error(`Stats server responded with status: ${response.status}`);
+      }
+      const data = await response.json();
+      setSystemStats(data);
+      if (statsError) setStatsError(null);
+    } catch (error) {
+      console.error("Failed to fetch system stats:", error);
+      setStatsError('Could not connect to stats helper. Is it running?');
+    }
+  }, [statsError]);
+
+
+  // Fetch list of locally available Ollama models
+  const fetchModels = useCallback(async () => {
+    try {
+      const response = await fetch(`${OLLAMA_API_BASE_URL}/api/tags`);
+      const data = await response.json();
+      setModels(data.models);
+      // Automatically select the first model if none is selected
+      if (!selectedModel && data.models.length > 0) {
+        setSelectedModel(data.models[0].name);
+      }
+    } catch (error) {
+      console.error("Failed to fetch Ollama models:", error);
+    }
+  }, [selectedModel]);
+  
+  // --- Effects ---
+
+  // Initial data fetch and interval for stats
+  useEffect(() => {
+    fetchModels();
+    fetchStats();
+    const interval = setInterval(fetchStats, 3000); // Refresh stats every 3 seconds
+    return () => clearInterval(interval);
+  }, [fetchModels, fetchStats]);
+
+  // Scroll to the bottom of the chat on new message
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [chatHistory]);
+
+  // --- Handlers ---
+  const handlePullModel = async (e) => {
+    e.preventDefault();
+    if (!pullModelName) return;
+    setIsStreaming(true);
+    setPullStatus(`Pulling model: ${pullModelName}...`);
+    try {
+        const response = await fetch(`${OLLAMA_API_BASE_URL}/api/pull`, {
+            method: 'POST',
+            body: JSON.stringify({ name: pullModelName, stream: true }),
+        });
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            const chunk = decoder.decode(value);
+            // In a real app, you'd parse each line of the chunk for detailed status
+            const lines = chunk.split('\n').filter(line => line.trim() !== '');
+            lines.forEach(line => {
+                const json = JSON.parse(line);
+                if (json.total && json.completed) {
+                    const percent = Math.round((json.completed / json.total) * 100);
+                    setPullStatus(`Downloading... ${percent}%`);
+                } else if(json.status) {
+                    setPullStatus(json.status);
+                }
+            });
+        }
+        setPullStatus('Model pulled successfully!');
+        fetchModels(); // Refresh model list
+    } catch (error) {
+        console.error("Failed to pull model:", error);
+        setPullStatus('Error pulling model.');
+    } finally {
+        setIsStreaming(false);
+        setTimeout(() => setPullStatus(''), 3000); // Clear status after a while
+    }
+};
+
+
+  const handleChatSubmit = async (e) => {
+    e.preventDefault();
+    if (!prompt || isStreaming || !selectedModel) return;
+
+    const newUserMessage = { role: 'user', content: prompt };
+    const newChatHistory = [...chatHistory, newUserMessage];
+    setChatHistory(newChatHistory);
+    setPrompt('');
+    setIsStreaming(true);
+
+    try {
+      const response = await fetch(`${OLLAMA_API_BASE_URL}/api/chat`, {
+        method: 'POST',
+        body: JSON.stringify({
+          model: selectedModel,
+          messages: newChatHistory,
+          stream: true,
+        }),
+      });
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let assistantMessage = { role: 'assistant', content: '' };
+      setChatHistory(prev => [...prev, assistantMessage]);
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const chunk = decoder.decode(value);
+        const lines = chunk.split('\n');
+        const parsedLines = lines
+            .map(line => line.trim())
+            .filter(line => line !== "" && line.startsWith('{'))
+            .map(line => JSON.parse(line));
         
-    return stats
+        for (const parsedLine of parsedLines) {
+            if (parsedLine.message && parsedLine.message.content) {
+                setChatHistory(prevHistory => {
+                    const updatedHistory = [...prevHistory];
+                    const lastMessage = updatedHistory[updatedHistory.length - 1];
+                    lastMessage.content += parsedLine.message.content;
+                    return updatedHistory;
+                });
+            }
+        }
+      }
+    } catch (error) {
+      console.error("Chat error:", error);
+       setChatHistory(prev => [...prev, {role: 'assistant', content: 'Sorry, I encountered an error.'}]);
+    } finally {
+      setIsStreaming(false);
+    }
+  };
+  
+  const handleClearChat = () => {
+    setChatHistory([]);
+  }
 
-@app.route('/api/system-stats')
-def get_system_stats():
-    """
-    Runs tegrastats for a brief moment, captures the output,
-    parses it, and returns it as JSON.
-    """
-    try:
-        # Run tegrastats for one iteration with a 100ms interval
-        result = subprocess.run(
-            ['tegrastats', '--interval', '100', '--count', '1'],
-            capture_output=True,
-            text=True,
-            check=True
-        )
-        # The output is in stdout
-        output_line = result.stdout.strip()
-        parsed_stats = parse_tegrastats(output_line)
+  return (
+    <div className="bg-gray-900 text-white font-sans min-h-screen flex flex-col">
+      <header className="bg-gray-900/80 backdrop-blur-sm border-b border-gray-700/50 sticky top-0 z-10">
+        <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-3 flex justify-between items-center">
+          <div className="flex items-center gap-3">
+            <svg className="w-8 h-8 text-green-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M14.213 1.001C8.46 1.001 4.088 4.623 3.55 9.773A1.002 1.002 0 0 0 4.548 11h3.918c.27 0 .52-.109.701-.289.182-.182.29-.432.29-.711 0-.551.449-1 1-1s1 .449 1 1c0 .279.108.529.29.711.18.18.43.289.7.289h3.919a1 1 0 0 0 .997-1.227C20.08 4.623 15.71 1 10 1h4.213Z"/><path d="M19.451 13H4.549a1 1 0 0 0-.998 1.227c.537 5.15 4.91 8.773 10.663 8.773h4.213c5.753 0 10.125-3.622 10.663-8.773A1 1 0 0 0 19.452 13Z"/></svg>
+            <h1 className="text-xl font-bold text-gray-100">Jetson Ollama Control Panel</h1>
+          </div>
+          <div className={`w-3 h-3 rounded-full animate-pulse ${statsError ? 'bg-red-500' : 'bg-green-500'}`} title={statsError ? statsError : 'Connected to Stats Helper'}></div>
+        </div>
+      </header>
+      
+      <main className="flex-grow container mx-auto p-4 sm:p-6 lg:p-8 grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Left Column: System & Model Management */}
+        <div className="lg:col-span-1 flex flex-col gap-6">
+            <div className="bg-gray-800/60 p-5 rounded-2xl border border-gray-700/50">
+                <h2 className="text-lg font-semibold mb-4 text-green-400">System Resources</h2>
+                {statsError ? (
+                  <div className="text-center text-red-400 bg-red-900/50 p-4 rounded-lg">{statsError}</div>
+                ) : systemStats ? (
+                  <div className="grid grid-cols-2 gap-4">
+                    <ResourceGauge label="CPU" value={systemStats.cpu_usage_percent || 0} max={100} unit="%" color="#22c55e" />
+                    <ResourceGauge label="GPU" value={systemStats.gpu_usage_percent || 0} max={100} unit="%" color="#3b82f6" />
+                    <ResourceGauge label="RAM" value={systemStats.ram_used_gb || 0} max={systemStats.ram_total_gb || 0} unit="GB" color="#eab308" />
+                    <ResourceGauge label="Temp" value={systemStats.soc_temp_c || 0} max={100} unit="°C" color="#ef4444" />
+                  </div>
+                ) : (
+                  <div className="text-center text-gray-400">Loading stats...</div>
+                )}
+            </div>
 
-        if not parsed_stats:
-            return jsonify({"error": "Failed to parse tegrastats output", "raw": output_line}), 500
+            <div className="bg-gray-800/60 p-5 rounded-2xl border border-gray-700/50">
+                <h2 className="text-lg font-semibold mb-4 text-blue-400">Model Management</h2>
+                <form onSubmit={handlePullModel} className="flex gap-2 mb-4">
+                    <input 
+                        type="text" 
+                        value={pullModelName}
+                        onChange={(e) => setPullModelName(e.target.value)}
+                        placeholder="e.g., gemma:7b-instruct"
+                        className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                    />
+                    <button type="submit" disabled={isStreaming} className="bg-blue-600 hover:bg-blue-700 disabled:bg-blue-800/50 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors">
+                        Pull
+                    </button>
+                </form>
+                {pullStatus && <div className="text-sm text-center text-yellow-300 mb-4">{pullStatus}</div>}
+                
+                <h3 className="text-md font-semibold mb-2 text-gray-300">Available Models</h3>
+                <div className="max-h-48 overflow-y-auto pr-2">
+                  {models.length > 0 ? (
+                    models.map(model => (
+                      <div 
+                        key={model.name}
+                        onClick={() => setSelectedModel(model.name)}
+                        className={`p-3 my-1 rounded-lg cursor-pointer transition-all duration-200 border-2 ${selectedModel === model.name ? 'bg-blue-600/30 border-blue-500' : 'bg-gray-700/50 border-transparent hover:border-gray-600'}`}
+                      >
+                        <p className="font-semibold text-sm">{model.name}</p>
+                        <p className="text-xs text-gray-400">Size: {(model.size / 1e9).toFixed(2)} GB</p>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="text-sm text-gray-500">No local models found.</p>
+                  )}
+                </div>
+            </div>
+        </div>
 
-        return jsonify(parsed_stats)
-
-    except FileNotFoundError:
-        return jsonify({"error": "'tegrastats' command not found. Are you running this on a Jetson device?"}), 500
-    except subprocess.CalledProcessError as e:
-        return jsonify({"error": "Error running tegrastats", "details": str(e)}), 500
-    except Exception as e:
-        return jsonify({"error": "An unexpected error occurred", "details": str(e)}), 500
-
-if __name__ == '__main__':
-    print("Starting Jetson Stats Server on http://localhost:5001")
-    # Host 0.0.0.0 makes it accessible from other devices on your network
-    app.run(host='0.0.0.0', port=5001)
+        {/* Right Column: Chat Interface */}
+        <div className="lg:col-span-2 bg-gray-800/60 rounded-2xl border border-gray-700/50 flex flex-col">
+            <div className="p-4 border-b border-gray-700 flex justify-between items-center">
+                <h2 className="text-lg font-semibold text-gray-200">Chat with <span className="text-green-400">{selectedModel || "No Model Selected"}</span></h2>
+                <button 
+                  onClick={handleClearChat} 
+                  disabled={isStreaming || chatHistory.length === 0}
+                  className="text-sm text-gray-400 hover:text-white disabled:text-gray-600 disabled:cursor-not-allowed transition-colors"
+                  title="Clear Chat History">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
+                </button>
+            </div>
+            <div className="flex-grow p-4 overflow-y-auto">
+                 {chatHistory.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center h-full text-gray-500">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+                        <p className="mt-4">Select a model and start the conversation.</p>
+                    </div>
+                 ) : (
+                    chatHistory.map((msg, index) => <ChatMessage key={index} message={msg} />)
+                 )}
+                <div ref={chatEndRef} />
+            </div>
+            <div className="p-4 border-t border-gray-700">
+                <form onSubmit={handleChatSubmit} className="flex items-center gap-3">
+                    <input 
+                        type="text"
+                        value={prompt}
+                        onChange={(e) => setPrompt(e.target.value)}
+                        placeholder={selectedModel ? `Ask ${selectedModel}...` : 'Select a model first'}
+                        disabled={!selectedModel || isStreaming}
+                        className="w-full bg-gray-700 border border-gray-600 rounded-xl px-4 py-3 focus:ring-2 focus:ring-green-500 focus:outline-none transition-all"
+                    />
+                    <button 
+                        type="submit" 
+                        disabled={!prompt || isStreaming || !selectedModel} 
+                        className="bg-green-600 hover:bg-green-700 disabled:bg-green-800/50 disabled:cursor-not-allowed text-white rounded-xl p-3 flex-shrink-0 transition-colors shadow-lg hover:shadow-green-500/30">
+                        {isStreaming ? (
+                             <div className="w-6 h-6 border-2 border-white/50 border-t-white rounded-full animate-spin"></div>
+                        ) : (
+                            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+                        )}
+                    </button>
+                </form>
+            </div>
+        </div>
+      </main>
+    </div>
+  );
+}
