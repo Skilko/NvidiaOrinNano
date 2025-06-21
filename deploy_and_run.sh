@@ -1,0 +1,102 @@
+#!/usr/bin/env bash
+# deploy_and_run.sh - Convenience script for Jetson Orin Nano
+# -----------------------------------------------------------------------------
+#  • Installs missing system dependencies (git, node, npm, python3, pip)
+#  • Pulls the latest commits from the 'main' branch of this repo
+#  • Installs / updates Python & Node.js dependencies
+#  • Builds the React frontend and starts a lightweight static server
+#  • Starts the Python system-stats helper
+#
+#  Frontend: served on http://<JETSON_IP>:3000
+#  Backend : http://<JETSON_IP>:5001/api/system-stats
+#
+#  Run from the repository root:
+#      chmod +x deploy_and_run.sh
+#      ./deploy_and_run.sh
+# -----------------------------------------------------------------------------
+set -euo pipefail
+
+RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[0;33m'; NC='\033[0m'
+log() { echo -e "${GREEN}[INFO]${NC} $*"; }
+warn() { echo -e "${YELLOW}[WARN]${NC} $*"; }
+err() { echo -e "${RED}[ERROR]${NC} $*" >&2; }
+
+need_cmd() {
+  if ! command -v "$1" >/dev/null 2>&1; then
+    warn "$1 not found. Installing ..."
+    sudo apt-get update -qq
+    sudo apt-get install -y "$2"
+  fi
+}
+
+# 1. Ensure core system packages ------------------------------------------------
+need_cmd git git
+need_cmd python3 python3
+need_cmd pip3 python3-pip
+need_cmd node nodejs
+need_cmd npm npm
+
+# 2. Pull latest code -----------------------------------------------------------
+log "Pulling latest code from git"
+current_branch=$(git rev-parse --abbrev-ref HEAD)
+if [[ "$current_branch" != "main" ]]; then
+  warn "You are on branch $current_branch. The script will pull main but not switch branches."
+fi
+
+git fetch origin
+if ! git merge-base --is-ancestor HEAD origin/main; then
+  warn "Local changes detected – performing a fast-forward pull where possible."
+fi
+
+git pull --ff-only origin main || {
+  err "Fast-forward pull failed. Please resolve git issues manually."; exit 1; }
+
+# 3. Python dependencies --------------------------------------------------------
+if [[ -f requirements.txt ]]; then
+  log "Installing Python dependencies"
+  pip3 install --user -r requirements.txt
+fi
+
+# 4. Node/React dependencies ----------------------------------------------------
+FRONTEND_DIR="frontend"
+if [[ -d "$FRONTEND_DIR" ]]; then
+  pushd "$FRONTEND_DIR" >/dev/null
+  if [[ ! -d node_modules ]]; then
+    log "Installing npm packages (this may take a while)"
+    npm install --no-audit --loglevel=error
+  else
+    log "npm deps already present – running quick update"
+    npm ci --no-audit --loglevel=error || npm install --no-audit --loglevel=error
+  fi
+  log "Building production bundle"
+  npm run build --silent
+  popd >/dev/null
+else
+  warn "No ./frontend directory found – skipping React build."
+fi
+
+# 5. Start / restart backend ----------------------------------------------------
+log "(Re)starting stats_server.py on port 5001"
+if pgrep -f stats_server.py >/dev/null; then
+  pkill -f stats_server.py
+  sleep 1
+fi
+nohup python3 stats_server.py > stats_server.log 2>&1 &
+
+# 6. Start static server for React build ---------------------------------------
+if [[ -d "$FRONTEND_DIR/build" ]]; then
+  if ! command -v serve >/dev/null 2>&1; then
+    log "Installing 'serve' to serve static React build"
+    sudo npm install -g serve
+  fi
+  log "(Re)starting frontend on port 3000"
+  pkill -f "serve -s $FRONTEND_DIR/build" || true
+  nohup serve -s "$FRONTEND_DIR/build" -l 3000 > frontend.log 2>&1 &
+else
+  warn "React build directory not found – frontend was not started."
+fi
+
+log "All done!"
+JETSON_IP=$(hostname -I | awk '{print $1}')
+echo -e "${GREEN}→ Frontend:${NC} http://$JETSON_IP:3000"
+echo -e "${GREEN}→ Backend :${NC} http://$JETSON_IP:5001/api/system-stats" 

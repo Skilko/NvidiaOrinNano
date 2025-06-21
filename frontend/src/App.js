@@ -233,7 +233,10 @@ export default function App() {
                 setChatHistory(prevHistory => {
                     const updatedHistory = [...prevHistory];
                     const lastMessage = updatedHistory[updatedHistory.length - 1];
-                    lastMessage.content += parsedLine.message.content;
+                    // Ollama’s stream returns the ENTIRE assistant message so far, not
+                    // just the delta. Overwrite the content instead of appending to
+                    // avoid duplicate text.
+                    lastMessage.content = parsedLine.message.content;
                     return updatedHistory;
                 });
             }
