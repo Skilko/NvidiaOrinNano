@@ -540,7 +540,7 @@ export default function App() {
         </div>
 
         {/* Right Column: Chat Interface */}
-        <div className="lg:col-span-2 bg-gray-800/60 rounded-2xl border border-gray-700/50 flex flex-col lg:sticky lg:top-4 lg:h-[calc(100vh-2rem)] overflow-hidden">
+        <div className="lg:col-span-2 bg-gray-800/60 rounded-2xl border border-gray-700/50 flex flex-col lg:sticky lg:top-[5rem] lg:h-[calc(100vh-5rem)] overflow-hidden">
             <div className="p-4 border-b border-gray-700 flex justify-between items-center">
                 <h2 className="text-lg font-semibold text-gray-200">Chat with <span className="text-green-400">{selectedModel || "No Model Selected"}</span></h2>
                 <button 
