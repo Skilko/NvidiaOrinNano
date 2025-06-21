@@ -17,6 +17,9 @@
 set -euo pipefail
 
 # Ensure git trusts this repository even when run as root (systemd service)
+if [ -z "${HOME:-}" ]; then
+  export HOME=/root
+fi
 REPO_DIR="/home/bbaorinnano/NvidiaOrinNano"
 if ! git config --global --get-all safe.directory | grep -qx "$REPO_DIR"; then
   echo "[INFO] Marking $REPO_DIR as a safe git directory for root user"
