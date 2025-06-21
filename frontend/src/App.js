@@ -216,6 +216,7 @@ export default function App() {
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let assistantMessage = { role: 'assistant', content: '' };
+      let assistantContent = '';
       setChatHistory(prev => [...prev, assistantMessage]);
 
       while (true) {
@@ -230,15 +231,9 @@ export default function App() {
         
         for (const parsedLine of parsedLines) {
             if (parsedLine.message && parsedLine.message.content) {
-                setChatHistory(prevHistory => {
-                    const updatedHistory = [...prevHistory];
-                    const lastMessage = updatedHistory[updatedHistory.length - 1];
-                    // Ollama’s stream returns the ENTIRE assistant message so far, not
-                    // just the delta. Overwrite the content instead of appending to
-                    // avoid duplicate text.
-                    lastMessage.content = parsedLine.message.content;
-                    return updatedHistory;
-                });
+                // Accumulate the delta so chat shows full assistant message
+                assistantContent += parsedLine.message.content;
+                lastMessage.content = assistantContent;
             }
         }
       }
