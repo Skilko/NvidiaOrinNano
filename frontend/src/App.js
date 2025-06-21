@@ -1,10 +1,22 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 
 // --- Configuration ---
-// Make sure the Ollama server is running and accessible at this address.
-const OLLAMA_API_BASE_URL = 'http://localhost:11434';
-// The address of the small Python helper script for system stats.
-const STATS_API_BASE_URL = 'http://localhost:5001';
+// Base URLs for APIs ---------------------------------------------------------
+// If you set environment variables `REACT_APP_OLLAMA_API_URL` or
+// `REACT_APP_STATS_API_URL` these values will be used. Otherwise we fall back
+// to using the hostname of the page the user is currently visiting. This makes
+// the app work whether it is accessed locally on the Jetson itself or from a
+// computer on the same network.
+
+function buildApiUrl(envVar, defaultPort) {
+  const env = process.env[envVar];
+  if (env && env.trim() !== '') return env;
+  const { protocol, hostname } = window.location;
+  return `${protocol}//${hostname}:${defaultPort}`;
+}
+
+const OLLAMA_API_BASE_URL = buildApiUrl('REACT_APP_OLLAMA_API_URL', 11434);
+const STATS_API_BASE_URL  = buildApiUrl('REACT_APP_STATS_API_URL', 5001);
 
 // --- Helper Components ---
 

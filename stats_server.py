@@ -11,8 +11,8 @@ def parse_tegrastats(line):
     """Parses a single line of output from the tegrastats utility."""
     stats = {}
 
-    # RAM: 1683/7762MB
-    ram_match = re.search(r"RAM (\d+)/(\d+)MB", line)
+    # RAM: 1683/7762MB  (sometimes the colon may be absent/present)
+    ram_match = re.search(r"RAM[:\s]+(\d+)/(\d+)MB", line)
     if ram_match:
         stats['ram_used_mb'] = int(ram_match.group(1))
         stats['ram_total_mb'] = int(ram_match.group(2))
@@ -27,8 +27,8 @@ def parse_tegrastats(line):
             total_percent = sum(int(p) for p in cpu_cores)
             stats['cpu_usage_percent'] = round(total_percent / len(cpu_cores), 2)
 
-    # GR3D_FREQ 15%@114
-    gpu_match = re.search(r"GR3D_FREQ (\d+)%@\d+", line)
+    # GR3D_FREQ 15%@114  or  GR3D_FREQ 0%
+    gpu_match = re.search(r"GR3D_FREQ (\d+)%(?:@\d+)?", line)
     if gpu_match:
         stats['gpu_usage_percent'] = int(gpu_match.group(1))
 
@@ -57,6 +57,8 @@ def get_system_stats():
         output_line = result.stdout.strip()
         parsed_stats = parse_tegrastats(output_line)
 
+        # Even if some keys are missing, return whatever we managed to parse.
+        # If nothing could be parsed, return an error so the caller knows.
         if not parsed_stats:
             return jsonify({"error": "Failed to parse tegrastats output", "raw": output_line}), 500
 
