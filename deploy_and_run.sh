@@ -98,5 +98,18 @@ fi
 
 log "All done!"
 JETSON_IP=$(hostname -I | awk '{print $1}')
+# Announce URLs
 echo -e "${GREEN}→ Frontend:${NC} http://$JETSON_IP:3000"
-echo -e "${GREEN}→ Backend :${NC} http://$JETSON_IP:5001/api/system-stats" 
+echo -e "${GREEN}→ Backend :${NC} http://$JETSON_IP:5001/api/system-stats"
+
+# 7. Optionally launch web browser -------------------------------------------
+if command -v xdg-open >/dev/null 2>&1; then
+  echo -e "${GREEN}[INFO]${NC} Launching default browser with application UI"
+  # Use background so script doesn\'t block if browser CLI holds terminal
+  (xdg-open "http://$JETSON_IP:3000" >/dev/null 2>&1 &)
+elif command -v sensible-browser >/dev/null 2>&1; then
+  echo -e "${GREEN}[INFO]${NC} Launching browser via sensible-browser"
+  (sensible-browser "http://$JETSON_IP:3000" >/dev/null 2>&1 &)
+else
+  echo -e "${YELLOW}[WARN]${NC} Could not detect a command to open the browser automatically. Please open http://$JETSON_IP:3000 manually."
+fi 

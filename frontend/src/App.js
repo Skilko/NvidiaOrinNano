@@ -134,6 +134,11 @@ export default function App() {
   // toggle visibility of left panels
   const [showResources, setShowResources] = useState(true);
   const [showModelMgmt, setShowModelMgmt] = useState(true);
+  // NEW: visibility state for Saved Chats panel
+  const [showSavedChats, setShowSavedChats] = useState(true);
+
+  // NEW: saved chats state
+  const [savedChats, setSavedChats] = useState([]);
 
   // --- API Functions ---
 
@@ -184,6 +189,19 @@ export default function App() {
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [chatHistory]);
+
+  // Load saved chats on mount
+  useEffect(() => {
+    const saved = localStorage.getItem('savedChats_v1');
+    if (saved) {
+      try { setSavedChats(JSON.parse(saved)); } catch (_) {}
+    }
+  }, []);
+
+  // Persist saved chats whenever they change
+  useEffect(() => {
+    localStorage.setItem('savedChats_v1', JSON.stringify(savedChats));
+  }, [savedChats]);
 
   // --- Handlers ---
   const handlePullModel = async (e) => {
@@ -292,6 +310,39 @@ export default function App() {
   const handleClearChat = () => {
     setChatHistory([]);
   }
+
+  // NEW: save current chat
+  const handleSaveCurrentChat = () => {
+    if (chatHistory.length === 0) return;
+    const title = window.prompt('Enter a title for this chat:', `Chat ${new Date().toLocaleString()}`);
+    if (!title) return;
+    const entry = {
+      id: Date.now().toString(),
+      title: title.trim(),
+      history: chatHistory,
+      model: selectedModel,
+      created: Date.now()
+    };
+    setSavedChats(prev => [entry, ...prev]);
+  };
+
+  // NEW: load a saved chat
+  const handleLoadChat = (id) => {
+    const entry = savedChats.find(c => c.id === id);
+    if (!entry) return;
+    setChatHistory(entry.history);
+    if (entry.model) {
+      const mInfo = models.find(m => m.name === entry.model);
+      setSelectedModel(entry.model);
+      setSelectedModelInfo(mInfo || null);
+    }
+  };
+
+  // NEW: delete saved chat
+  const handleDeleteSavedChat = (id) => {
+    if (!window.confirm('Delete this saved chat?')) return;
+    setSavedChats(prev => prev.filter(c => c.id !== id));
+  };
 
   // Helper: whether we have enough free RAM to load / run the model.
   const hasSufficientMemory = () => {
@@ -407,6 +458,36 @@ export default function App() {
                 {!memOk && (
                   <p className="text-xs text-red-400 mt-1">Not enough free RAM to run this model right now.</p>
                 )}
+                </div>
+              )}
+            </div>
+
+            {/* NEW: Saved Chats Panel */}
+            <div className="bg-gray-800/60 rounded-2xl border border-gray-700/50 overflow-hidden">
+                <button onClick={()=>setShowSavedChats(!showSavedChats)} className="w-full flex justify-between items-center px-5 py-3 bg-gray-800/70 hover:bg-gray-800 text-lg font-semibold text-amber-400">
+                  <span>Saved Chats</span>
+                  <span>{showSavedChats ? '▾':'▸'}</span>
+                </button>
+              {showSavedChats && (
+                <div className="p-5 flex flex-col gap-4">
+                  <button onClick={handleSaveCurrentChat} disabled={chatHistory.length===0} className="bg-amber-600 hover:bg-amber-700 disabled:bg-amber-800/50 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors">
+                     Save Current Chat
+                  </button>
+                  {savedChats.length === 0 ? (
+                     <p className="text-sm text-gray-500 text-center">No saved chats.</p>
+                  ) : (
+                     <div className="max-h-48 overflow-y-auto pr-2 flex flex-col gap-2">
+                        {savedChats.map(c => (
+                           <div key={c.id} className="group p-3 rounded-lg transition-all duration-200 border-2 bg-gray-700/50 hover:border-gray-600 flex justify-between items-center">
+                              <div className="flex-1 cursor-pointer" onClick={()=>handleLoadChat(c.id)} title="Load chat">
+                                 <p className="font-semibold text-sm truncate w-40">{c.title}</p>
+                                 <p className="text-xs text-gray-400">{new Date(c.created).toLocaleDateString()}</p>
+                              </div>
+                              <button onClick={()=>handleDeleteSavedChat(c.id)} title="Delete saved chat" className="hidden group-hover:block text-red-400 hover:text-red-300 ml-2">✕</button>
+                           </div>
+                        ))}
+                     </div>
+                  )}
                 </div>
               )}
             </div>
