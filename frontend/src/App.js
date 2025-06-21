@@ -139,6 +139,10 @@ export default function App() {
 
   // NEW: saved chats state
   const [savedChats, setSavedChats] = useState([]);
+  // Track currently loaded chat (null means a fresh unsaved chat)
+  const [currentChatId, setCurrentChatId] = useState(null);
+  // Keep a ref to any in-flight streaming request so we can cancel it when switching chats
+  const streamControllerRef = useRef(null);
 
   // --- API Functions ---
 
@@ -245,6 +249,13 @@ export default function App() {
     }
 };
 
+  // Abort an in-flight chat streaming request (if any exists)
+  const abortStreamIfAny = () => {
+    if (streamControllerRef.current) {
+      try { streamControllerRef.current.abort(); } catch (_) { /* ignored */ }
+      streamControllerRef.current = null;
+    }
+  };
 
   const handleChatSubmit = async (e) => {
     e.preventDefault();
@@ -257,8 +268,11 @@ export default function App() {
     setIsStreaming(true);
 
     try {
+      const controller = new AbortController();
+      streamControllerRef.current = controller;
       const response = await fetch(`${OLLAMA_API_BASE_URL}/api/chat`, {
         method: 'POST',
+        signal: controller.signal,
         body: JSON.stringify({
           model: selectedModel,
           messages: newChatHistory,
@@ -304,11 +318,24 @@ export default function App() {
        setChatHistory(prev => [...prev, {role: 'assistant', content: 'Sorry, I encountered an error.'}]);
     } finally {
       setIsStreaming(false);
+      streamControllerRef.current = null;
     }
   };
   
   const handleClearChat = () => {
     setChatHistory([]);
+  }
+
+  // NEW: start a completely fresh chat session
+  const handleNewChat = () => {
+    if (isStreaming) {
+      const ok = window.confirm('A response is still streaming. Abort and start a new chat?');
+      if (!ok) return;
+      abortStreamIfAny();
+      setIsStreaming(false);
+    }
+    setChatHistory([]);
+    setCurrentChatId(null);
   }
 
   // NEW: save current chat
@@ -319,15 +346,22 @@ export default function App() {
     const entry = {
       id: Date.now().toString(),
       title: title.trim(),
-      history: chatHistory,
+      history: JSON.parse(JSON.stringify(chatHistory)),
       model: selectedModel,
       created: Date.now()
     };
     setSavedChats(prev => [entry, ...prev]);
+    setCurrentChatId(entry.id);
   };
 
   // NEW: load a saved chat
   const handleLoadChat = (id) => {
+    if (isStreaming) {
+      const ok = window.confirm('A response is still streaming. Abort and switch chats?');
+      if (!ok) return;
+      abortStreamIfAny();
+      setIsStreaming(false);
+    }
     const entry = savedChats.find(c => c.id === id);
     if (!entry) return;
     setChatHistory(entry.history);
@@ -336,6 +370,7 @@ export default function App() {
       setSelectedModel(entry.model);
       setSelectedModelInfo(mInfo || null);
     }
+    setCurrentChatId(entry.id);
   };
 
   // NEW: delete saved chat
@@ -470,6 +505,9 @@ export default function App() {
                 </button>
               {showSavedChats && (
                 <div className="p-5 flex flex-col gap-4">
+                  <button onClick={handleNewChat} disabled={isStreaming} className="bg-green-700 hover:bg-green-800 disabled:bg-green-900/50 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors">
+                     New Chat
+                  </button>
                   <button onClick={handleSaveCurrentChat} disabled={chatHistory.length===0} className="bg-amber-600 hover:bg-amber-700 disabled:bg-amber-800/50 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors">
                      Save Current Chat
                   </button>
@@ -478,7 +516,10 @@ export default function App() {
                   ) : (
                      <div className="max-h-48 overflow-y-auto pr-2 flex flex-col gap-2">
                         {savedChats.map(c => (
-                           <div key={c.id} className="group p-3 rounded-lg transition-all duration-200 border-2 bg-gray-700/50 hover:border-gray-600 flex justify-between items-center">
+                           <div
+                              key={c.id}
+                              className={`group p-3 rounded-lg transition-all duration-200 border-2 flex justify-between items-center ${currentChatId===c.id ? 'bg-amber-600/30 border-amber-500' : 'bg-gray-700/50 hover:border-gray-600'}`}
+                           >
                               <div className="flex-1 cursor-pointer" onClick={()=>handleLoadChat(c.id)} title="Load chat">
                                  <p className="font-semibold text-sm truncate w-40">{c.title}</p>
                                  <p className="text-xs text-gray-400">{new Date(c.created).toLocaleDateString()}</p>
