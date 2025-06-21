@@ -127,4 +127,57 @@ Your `src/index.css` should contain:
 3. When Mac ownership errors appear, reclaim with `sudo chown -R $USER .` and reinstall dependencies.  
 4. Keep `postcss.config.js` minimal—CRA only reads it at server start-up.
 
-With those tweaks the Orin Nano dev kit now serves a fully styled React interface powered by Flask system-stats on the back-end. Happy coding! 
+With those tweaks the Orin Nano dev kit now serves a fully styled React interface powered by Flask system-stats on the back-end. Happy coding!
+
+---
+
+## Appendix  — Getting it running on the Jetson Orin Nano
+
+The Nano is essentially an Ubuntu aarch64 box, so the same fixes apply, but you need a recent Node build first.
+
+1. **Install Node ≥ 18 and npm**  
+   (If you already have a modern Node, skip this)
+   ```bash
+   curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+   sudo apt-get install -y nodejs    # installs node & npm
+   ```
+
+2. **Clone / pull the repo**  
+   ```bash
+   git clone https://github.com/Skilko/NvidiaOrinNano.git
+   cd NvidiaOrinNano/NvidiaOrinNano
+   ```
+
+3. **Fix permissions (avoid `sudo npm ...`)**  
+   ```bash
+   sudo chown -R $USER:$(id -gn) .   # take ownership of all files
+   ```
+
+4. **Install the frontend dependencies**  
+   ```bash
+   cd frontend
+   rm -rf node_modules package-lock.json   # optional clean start
+   npm install                              # no sudo!
+   ```
+
+5. **Run the dev server**  
+   ```bash
+   npm start
+   ```
+   The terminal should print:
+   ```
+   Compiled successfully!
+   Local:            http://localhost:3000
+   ```
+
+6. **(Optional) Build for production**  
+   ```bash
+   npm run build               # outputs to frontend/build/
+   ```
+   Serve `build/` with nginx or copy it into a Flask `static/` directory.
+
+### Common Jetson pitfalls
+
+* JetPack images ship with very old Node versions – always install via NodeSource or `nvm`.
+* Running any `npm install` under `sudo` will recreate the permission issue; stay in your user context.
+* Remember to `cd frontend` before installing or starting React. 
