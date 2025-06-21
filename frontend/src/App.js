@@ -259,21 +259,26 @@ export default function App() {
         if (done) break;
         const chunk = decoder.decode(value);
         const lines = chunk.split('\n');
-        const parsedLines = lines
-            .map(line => line.trim())
-            .filter(line => line !== "" && line.startsWith('{'))
-            .map(line => JSON.parse(line));
-        
-        for (const parsedLine of parsedLines) {
-            if (parsedLine.message && parsedLine.message.content) {
-                // Accumulate assistant text and push to state so UI updates
-                assistantContent += parsedLine.message.content;
-                setChatHistory(prevHistory => {
-                    const updated = [...prevHistory];
-                    updated[updated.length - 1] = { ...updated[updated.length - 1], content: assistantContent };
-                    return updated;
-                });
+        let hasDelta = false;
+        lines.forEach(line => {
+          const trimmed = line.trim();
+          if (!trimmed || !trimmed.startsWith('{')) return;
+          try {
+            const parsed = JSON.parse(trimmed);
+            if (parsed.message && parsed.message.content) {
+              assistantContent += parsed.message.content;
+              hasDelta = true;
             }
+          } catch (_) {/* ignore malformed */}
+        });
+
+        // Push update once per chunk, not per token
+        if (hasDelta) {
+          setChatHistory(prevHistory => {
+            const updated = [...prevHistory];
+            updated[updated.length - 1] = { ...updated[updated.length - 1], content: assistantContent };
+            return updated;
+          });
         }
       }
     } catch (error) {
