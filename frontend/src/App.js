@@ -231,9 +231,13 @@ export default function App() {
         
         for (const parsedLine of parsedLines) {
             if (parsedLine.message && parsedLine.message.content) {
-                // Accumulate the delta so chat shows full assistant message
+                // Accumulate assistant text and push to state so UI updates
                 assistantContent += parsedLine.message.content;
-                lastMessage.content = assistantContent;
+                setChatHistory(prevHistory => {
+                    const updated = [...prevHistory];
+                    updated[updated.length - 1] = { ...updated[updated.length - 1], content: assistantContent };
+                    return updated;
+                });
             }
         }
       }
