@@ -16,6 +16,13 @@
 # -----------------------------------------------------------------------------
 set -euo pipefail
 
+# Ensure git trusts this repository even when run as root (systemd service)
+REPO_DIR="/home/bbaorinnano/NvidiaOrinNano"
+if ! git config --global --get-all safe.directory | grep -qx "$REPO_DIR"; then
+  echo "[INFO] Marking $REPO_DIR as a safe git directory for root user"
+  git config --global --add safe.directory "$REPO_DIR"
+fi
+
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[0;33m'; NC='\033[0m'
 log() { echo -e "${GREEN}[INFO]${NC} $*"; }
 warn() { echo -e "${YELLOW}[WARN]${NC} $*"; }
