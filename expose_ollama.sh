@@ -31,6 +31,7 @@ log "Writing override file: ${DROPIN_FILE}"
 cat > "${DROPIN_FILE}" <<EOF
 [Service]
 Environment="OLLAMA_HOST=0.0.0.0"
+Environment="OLLAMA_ORIGINS=*"
 EOF
 
 log "Reloading systemd daemon"

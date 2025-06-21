@@ -51,6 +51,18 @@ fi
 git pull --ff-only origin main || {
   err "Fast-forward pull failed. Please resolve git issues manually."; exit 1; }
 
+# 2b. Configure / restart Ollama service to listen on all interfaces & allow CORS
+if [[ -f "expose_ollama.sh" ]]; then
+  log "Configuring Ollama network & CORS settings (requires sudo)"
+  if sudo ./expose_ollama.sh; then
+    log "Ollama service configured."
+  else
+    warn "expose_ollama.sh encountered an error. Continuing deployment."
+  fi
+else
+  warn "expose_ollama.sh script not found – skipping Ollama configuration."
+fi
+
 # 3. Python dependencies --------------------------------------------------------
 if [[ -f requirements.txt ]]; then
   log "Installing Python dependencies"
