@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import remarkBreaks from 'remark-breaks';
 
 // --- Configuration ---
 // Base URLs for APIs ---------------------------------------------------------
@@ -78,15 +79,33 @@ const ChatMessage = ({ message }) => {
                 </div>
             )}
             <div className={`p-4 rounded-2xl markdown-body max-w-lg ${isUser ? 'bg-blue-600/80 text-white rounded-br-none' : 'bg-gray-700/70 text-gray-200 rounded-bl-none'}`}>
+                 {message.content.trim() === '' && message.role === 'assistant' ? (
+                    <span className="italic text-gray-400 animate-pulse">Thinking…</span>
+                 ) : (
                  <ReactMarkdown
-                    remarkPlugins={[remarkGfm]}
+                    remarkPlugins={[remarkGfm, remarkBreaks]}
                     components={{
-                      a: ({node, ...props}) => <a className="text-blue-400 underline" {...props} />
+                      a: ({node, ...props}) => <a className="text-blue-400 underline" {...props} />,
+                      code({node, inline, className, children, ...props}) {
+                        const match = /language-(\w+)/.exec(className || '');
+                        const content = String(children).replace(/\n$/, '');
+                        if (inline) {
+                          return (
+                            <code className="bg-gray-800/70 text-red-300 px-1 py-0.5 rounded" {...props}>{content}</code>
+                          );
+                        }
+                        return (
+                          <pre className="bg-gray-900 rounded-lg p-4 overflow-x-auto text-sm" {...props}>
+                            <code className="text-gray-100 whitespace-pre-wrap">{content}</code>
+                          </pre>
+                        );
+                      }
                     }}
                     className="prose prose-invert text-sm"
                  >
                      {message.content}
                  </ReactMarkdown>
+                 )}
             </div>
              {isUser && (
                 <div className="w-10 h-10 bg-gradient-to-br from-indigo-500 to-purple-500 rounded-full flex-shrink-0 flex items-center justify-center shadow-md">
@@ -157,7 +176,7 @@ export default function App() {
   useEffect(() => {
     fetchModels();
     fetchStats();
-    const interval = setInterval(fetchStats, 3000); // Refresh stats every 3 seconds
+    const interval = setInterval(fetchStats, 500); // Refresh stats ~2× per second
     return () => clearInterval(interval);
   }, [fetchModels, fetchStats]);
 
