@@ -5,8 +5,8 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=/home/bbaorinnano/nvidiaorinnano
-ExecStart=/bin/bash /home/bbaorinnano/nvidiaorinnano/deploy_and_run.sh
+WorkingDirectory=/home/bbaorinnano/NvidiaOrinNano
+ExecStart=/bin/bash /home/bbaorinnano/NvidiaOrinNano/deploy_and_run.sh
 Restart=always
 RestartSec=10
 
