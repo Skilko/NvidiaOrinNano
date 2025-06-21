@@ -99,6 +99,7 @@ REACT_APP_STATS_API_URL=http://192.168.1.42:5001
 * GitHub-flavoured Markdown rendering (`react-markdown` + `remark-gfm` + `remark-breaks`).
 * Syntax-highlight-ready code blocks and inline code styling.
 * Scrollable chat pane capped to viewport height.
+* Sticky chat pane stays fully below the header and never gets hidden.
 
 ### ✨ Resource Gauges
 * CPU %, GPU %, RAM usage, SOC temperature.
@@ -144,4 +145,14 @@ Pull requests are welcome! 💚
 
 ## 8 · License
 
-This project is licensed under the MIT License – see the [LICENSE](LICENSE) file for details. 
+This project is licensed under the MIT License – see the [LICENSE](LICENSE) file for details.
+
+---
+
+## 9 · Changelog
+
+### v0.1.0 · 2024-06-21
+
+* NEW – Chat interface is now sticky and always visible below the main header.
+* FIX – Removed hard-coded height calculations; chat pane flexibly adapts to viewport.
+* DOCS – Added this changelog and updated README accordingly. 
