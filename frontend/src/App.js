@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 // --- Configuration ---
 // Base URLs for APIs ---------------------------------------------------------
@@ -75,8 +77,16 @@ const ChatMessage = ({ message }) => {
                     <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 8V4H8"/><rect x="4" y="12" width="16" height="8" rx="2"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="M17 12v-2a2 2 0 0 0-2-2h-2a2 2 0 0 0-2 2v2"/></svg>
                 </div>
             )}
-            <div className={`p-4 rounded-2xl max-w-lg ${isUser ? 'bg-blue-600/80 text-white rounded-br-none' : 'bg-gray-700/70 text-gray-200 rounded-bl-none'}`}>
-                 <p className="whitespace-pre-wrap">{message.content}</p>
+            <div className={`p-4 rounded-2xl markdown-body max-w-lg ${isUser ? 'bg-blue-600/80 text-white rounded-br-none' : 'bg-gray-700/70 text-gray-200 rounded-bl-none'}`}>
+                 <ReactMarkdown
+                    remarkPlugins={[remarkGfm]}
+                    components={{
+                      a: ({node, ...props}) => <a className="text-blue-400 underline" {...props} />
+                    }}
+                    className="prose prose-invert text-sm"
+                 >
+                     {message.content}
+                 </ReactMarkdown>
             </div>
              {isUser && (
                 <div className="w-10 h-10 bg-gradient-to-br from-indigo-500 to-purple-500 rounded-full flex-shrink-0 flex items-center justify-center shadow-md">
@@ -94,6 +104,7 @@ export default function App() {
   const [statsError, setStatsError] = useState(null);
   const [models, setModels] = useState([]);
   const [selectedModel, setSelectedModel] = useState('');
+  const [selectedModelInfo, setSelectedModelInfo] = useState(null);
   const [chatHistory, setChatHistory] = useState([]);
   const [prompt, setPrompt] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
@@ -129,6 +140,7 @@ export default function App() {
       // Automatically select the first model if none is selected
       if (!selectedModel && data.models.length > 0) {
         setSelectedModel(data.models[0].name);
+        setSelectedModelInfo(data.models[0]);
       }
     } catch (error) {
       console.error("Failed to fetch Ollama models:", error);
@@ -195,7 +207,7 @@ export default function App() {
 
   const handleChatSubmit = async (e) => {
     e.preventDefault();
-    if (!prompt || isStreaming || !selectedModel) return;
+    if (!prompt || isStreaming || !selectedModel || !selectedModelInfo) return;
 
     const newUserMessage = { role: 'user', content: prompt };
     const newChatHistory = [...chatHistory, newUserMessage];
@@ -253,6 +265,17 @@ export default function App() {
     setChatHistory([]);
   }
 
+  // Helper: whether we have enough free RAM to load / run the model.
+  const hasSufficientMemory = () => {
+    if (!systemStats || !selectedModelInfo) return true; // no stats yet
+    const freeGb = (systemStats.ram_total_gb || 0) - (systemStats.ram_used_gb || 0);
+    const modelGb = (selectedModelInfo.size || 0) / 1e9;
+    // require 1.5× model size free (heuristic)
+    return freeGb > modelGb * 1.5;
+  };
+
+  const memOk = hasSufficientMemory();
+
   return (
     <div className="bg-gray-900 text-white font-sans min-h-screen flex flex-col">
       <header className="bg-gray-900/80 backdrop-blur-sm border-b border-gray-700/50 sticky top-0 z-10">
@@ -306,8 +329,9 @@ export default function App() {
                     models.map(model => (
                       <div 
                         key={model.name}
-                        onClick={() => setSelectedModel(model.name)}
+                        onClick={() => {setSelectedModel(model.name); setSelectedModelInfo(model);}}
                         className={`p-3 my-1 rounded-lg cursor-pointer transition-all duration-200 border-2 ${selectedModel === model.name ? 'bg-blue-600/30 border-blue-500' : 'bg-gray-700/50 border-transparent hover:border-gray-600'}`}
+                        disabled={!memOk}
                       >
                         <p className="font-semibold text-sm">{model.name}</p>
                         <p className="text-xs text-gray-400">Size: {(model.size / 1e9).toFixed(2)} GB</p>
@@ -317,6 +341,9 @@ export default function App() {
                     <p className="text-sm text-gray-500">No local models found.</p>
                   )}
                 </div>
+                {!memOk && (
+                  <p className="text-xs text-red-400 mt-1">Not enough free RAM to run this model right now.</p>
+                )}
             </div>
         </div>
 
@@ -350,12 +377,12 @@ export default function App() {
                         value={prompt}
                         onChange={(e) => setPrompt(e.target.value)}
                         placeholder={selectedModel ? `Ask ${selectedModel}...` : 'Select a model first'}
-                        disabled={!selectedModel || isStreaming}
+                        disabled={!selectedModel || isStreaming || !memOk}
                         className="w-full bg-gray-700 border border-gray-600 rounded-xl px-4 py-3 focus:ring-2 focus:ring-green-500 focus:outline-none transition-all"
                     />
                     <button 
                         type="submit" 
-                        disabled={!prompt || isStreaming || !selectedModel} 
+                        disabled={!prompt || isStreaming || !selectedModel || !memOk} 
                         className="bg-green-600 hover:bg-green-700 disabled:bg-green-800/50 disabled:cursor-not-allowed text-white rounded-xl p-3 flex-shrink-0 transition-colors shadow-lg hover:shadow-green-500/30">
                         {isStreaming ? (
                              <div className="w-6 h-6 border-2 border-white/50 border-t-white rounded-full animate-spin"></div>
