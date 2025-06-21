@@ -112,6 +112,10 @@ export default function App() {
   const [pullStatus, setPullStatus] = useState('');
   const chatEndRef = useRef(null);
 
+  // toggle visibility of left panels
+  const [showResources, setShowResources] = useState(true);
+  const [showModelMgmt, setShowModelMgmt] = useState(true);
+
   // --- API Functions ---
 
   // Fetch system stats from our Python helper
@@ -276,6 +280,26 @@ export default function App() {
 
   const memOk = hasSufficientMemory();
 
+  const handleDeleteModel = async (name) => {
+    if (!window.confirm(`Delete model '${name}'? This cannot be undone.`)) return;
+    try {
+      await fetch(`${OLLAMA_API_BASE_URL}/api/delete`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: name })
+      });
+      // if the deleted model was selected, clear.
+      if (selectedModel === name) {
+        setSelectedModel('');
+        setSelectedModelInfo(null);
+      }
+      fetchModels();
+    } catch (err) {
+      alert('Failed to delete model');
+      console.error(err);
+    }
+  };
+
   return (
     <div className="bg-gray-900 text-white font-sans min-h-screen flex flex-col">
       <header className="bg-gray-900/80 backdrop-blur-sm border-b border-gray-700/50 sticky top-0 z-10">
@@ -291,8 +315,13 @@ export default function App() {
       <main className="flex-grow container mx-auto p-4 sm:p-6 lg:p-8 grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left Column: System & Model Management */}
         <div className="lg:col-span-1 flex flex-col gap-6">
-            <div className="bg-gray-800/60 p-5 rounded-2xl border border-gray-700/50">
-                <h2 className="text-lg font-semibold mb-4 text-green-400">System Resources</h2>
+            <div className="bg-gray-800/60 rounded-2xl border border-gray-700/50 overflow-hidden">
+                <button onClick={()=>setShowResources(!showResources)} className="w-full flex justify-between items-center px-5 py-3 bg-gray-800/70 hover:bg-gray-800 text-lg font-semibold text-green-400">
+                  <span>System Resources</span>
+                  <span>{showResources ? '▾':'▸'}</span>
+                </button>
+                {showResources && (
+                <div className="p-5">
                 {statsError ? (
                   <div className="text-center text-red-400 bg-red-900/50 p-4 rounded-lg">{statsError}</div>
                 ) : systemStats ? (
@@ -305,10 +334,17 @@ export default function App() {
                 ) : (
                   <div className="text-center text-gray-400">Loading stats...</div>
                 )}
+                </div>
+                )}
             </div>
 
-            <div className="bg-gray-800/60 p-5 rounded-2xl border border-gray-700/50">
-                <h2 className="text-lg font-semibold mb-4 text-blue-400">Model Management</h2>
+            <div className="bg-gray-800/60 rounded-2xl border border-gray-700/50 overflow-hidden">
+                <button onClick={()=>setShowModelMgmt(!showModelMgmt)} className="w-full flex justify-between items-center px-5 py-3 bg-gray-800/70 hover:bg-gray-800 text-lg font-semibold text-blue-400">
+                  <span>Model Management</span>
+                  <span>{showModelMgmt ? '▾':'▸'}</span>
+                </button>
+              {showModelMgmt && (
+                <div className="p-5">
                 <form onSubmit={handlePullModel} className="flex gap-2 mb-4">
                     <input 
                         type="text" 
@@ -329,12 +365,15 @@ export default function App() {
                     models.map(model => (
                       <div 
                         key={model.name}
-                        onClick={() => {setSelectedModel(model.name); setSelectedModelInfo(model);}}
-                        className={`p-3 my-1 rounded-lg cursor-pointer transition-all duration-200 border-2 ${selectedModel === model.name ? 'bg-blue-600/30 border-blue-500' : 'bg-gray-700/50 border-transparent hover:border-gray-600'}`}
-                        disabled={!memOk}
+                        className={`group p-3 my-1 rounded-lg transition-all duration-200 border-2 flex justify-between items-center ${selectedModel === model.name ? 'bg-blue-600/30 border-blue-500' : 'bg-gray-700/50 border-transparent hover:border-gray-600'}`}
                       >
-                        <p className="font-semibold text-sm">{model.name}</p>
-                        <p className="text-xs text-gray-400">Size: {(model.size / 1e9).toFixed(2)} GB</p>
+                        <div className="flex-1 cursor-pointer" onClick={() => {setSelectedModel(model.name); setSelectedModelInfo(model);}}>
+                          <p className="font-semibold text-sm">{model.name}</p>
+                          <p className="text-xs text-gray-400">{(model.size / 1e9).toFixed(2)} GB</p>
+                        </div>
+                        <button onClick={() => handleDeleteModel(model.name)} title="Delete model" className="hidden group-hover:block text-red-400 hover:text-red-300">
+                          ✕
+                        </button>
                       </div>
                     ))
                   ) : (
@@ -344,6 +383,8 @@ export default function App() {
                 {!memOk && (
                   <p className="text-xs text-red-400 mt-1">Not enough free RAM to run this model right now.</p>
                 )}
+                </div>
+              )}
             </div>
         </div>
 
@@ -359,7 +400,7 @@ export default function App() {
                     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
                 </button>
             </div>
-            <div className="flex-grow p-4 overflow-y-auto">
+            <div className="flex-1 p-4 overflow-y-auto" style={{maxHeight: 'calc(100vh - 260px)'}}>
                  {chatHistory.length === 0 ? (
                     <div className="flex flex-col items-center justify-center h-full text-gray-500">
                         <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
@@ -371,6 +412,13 @@ export default function App() {
                 <div ref={chatEndRef} />
             </div>
             <div className="p-4 border-t border-gray-700">
+                {/* quick model select */}
+                <div className="mb-3">
+                  <select value={selectedModel} onChange={(e)=>{const m=models.find(x=>x.name===e.target.value); setSelectedModel(e.target.value); setSelectedModelInfo(m);}} className="bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm w-full disabled:bg-gray-800/50" disabled={isStreaming || models.length===0}>
+                    <option value="" disabled>Select model...</option>
+                    {models.map(m=>(<option key={m.name} value={m.name}>{m.name}</option>))}
+                  </select>
+                </div>
                 <form onSubmit={handleChatSubmit} className="flex items-center gap-3">
                     <input 
                         type="text"
