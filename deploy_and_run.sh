@@ -113,7 +113,7 @@ if [[ -d "$FRONTEND_DIR/build" ]]; then
   fi
   log "(Re)starting frontend on port 3000"
   pkill -f "serve -s $FRONTEND_DIR/build" || true
-  nohup serve -s "$FRONTEND_DIR/build" -l 3000 > frontend.log 2>&1 &
+  nohup serve -s "$FRONTEND_DIR/build" -l tcp://0.0.0.0:3000 > frontend.log 2>&1 &
 else
   warn "React build directory not found – frontend was not started."
 fi
