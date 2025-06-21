@@ -61,6 +61,12 @@ fi
 git pull --ff-only origin main || {
   err "Fast-forward pull failed. Please resolve git issues manually."; exit 1; }
 
+# 2c. Ensure key scripts have execute permission (in case git resets them)
+chmod +x "$REPO_DIR/deploy_and_run.sh"
+if [[ -f "$REPO_DIR/expose_ollama.sh" ]]; then
+  chmod +x "$REPO_DIR/expose_ollama.sh"
+fi
+
 # 2b. Configure / restart Ollama service to listen on all interfaces & allow CORS
 if [[ -f "expose_ollama.sh" ]]; then
   log "Configuring Ollama network & CORS settings (requires sudo)"
