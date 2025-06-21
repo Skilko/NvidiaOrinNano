@@ -130,6 +130,16 @@ JETSON_IP=$(hostname -I | awk '{print $1}')
 echo -e "${GREEN}→ Frontend:${NC} http://$JETSON_IP:3000"
 echo -e "${GREEN}→ Backend :${NC} http://$JETSON_IP:5001/api/system-stats"
 
+# If running under systemd (INVOCATION_ID is set), stay alive so the service
+# remains active. Otherwise the script exits and systemd marks the unit as
+# inactive even though the background servers are still running.
+if [[ -n "${INVOCATION_ID:-}" ]]; then
+  echo "${GREEN}[INFO]${NC} Running under systemd – keeping process alive."
+  # Trap SIGTERM so 'systemctl stop' works cleanly.
+  trap 'echo "Stopping background servers"; pkill -f stats_server.py; pkill -f "serve -s"; exit 0' TERM INT
+  while :; do sleep 3600; done
+fi
+
 # 7. Optionally launch web browser -------------------------------------------
 if command -v xdg-open >/dev/null 2>&1; then
   echo -e "${GREEN}[INFO]${NC} Launching default browser with application UI"
