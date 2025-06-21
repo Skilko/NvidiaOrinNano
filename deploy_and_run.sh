@@ -82,7 +82,12 @@ fi
 # 3. Python dependencies --------------------------------------------------------
 if [[ -f requirements.txt ]]; then
   log "Installing Python dependencies"
-  pip3 install --user -r requirements.txt
+  # If running as root, --user site-packages are ignored; install system-wide.
+  if [[ "$EUID" -eq 0 ]]; then
+    pip3 install --break-system-packages -r requirements.txt
+  else
+    pip3 install --user -r requirements.txt
+  fi
 fi
 
 # 4. Node/React dependencies ----------------------------------------------------
