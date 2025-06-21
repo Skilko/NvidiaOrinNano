@@ -46,15 +46,28 @@ def get_system_stats():
     parses it, and returns it as JSON.
     """
     try:
-        # Run tegrastats for one iteration with a 100ms interval
-        result = subprocess.run(
-            ['tegrastats', '--interval', '100', '--count', '1'],
-            capture_output=True,
-            text=True,
-            check=True
+        # Run tegrastats and grab a single line of output. Some builds of the
+        # utility (e.g. JetPack 5.x) do NOT support the "--count" flag, so we
+        # simply start it, read one line, and terminate.
+
+        proc = subprocess.Popen(
+            ['tegrastats', '--interval', '100'],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
         )
-        # The output is in stdout
-        output_line = result.stdout.strip()
+
+        # Read exactly one line of stats
+        output_line = proc.stdout.readline().strip()
+
+        # We no longer need the process – terminate it politely. If it is
+        # already gone this is a no-op.
+        proc.terminate()
+        try:
+            proc.wait(timeout=0.2)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+
         parsed_stats = parse_tegrastats(output_line)
 
         # Even if some keys are missing, return whatever we managed to parse.
