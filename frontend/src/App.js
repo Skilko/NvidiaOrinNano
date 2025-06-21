@@ -144,6 +144,10 @@ export default function App() {
   // Keep a ref to any in-flight streaming request so we can cancel it when switching chats
   const streamControllerRef = useRef(null);
 
+  // Administrative action loading flags
+  const [isRestartingService, setIsRestartingService] = useState(false);
+  const [isRebootingSystem, setIsRebootingSystem] = useState(false);
+
   // --- API Functions ---
 
   // Fetch system stats from our Python helper
@@ -410,15 +414,68 @@ export default function App() {
     }
   };
 
+  // --- Administrative Handlers ---
+
+  const handleRestartService = async () => {
+    if (!window.confirm('Are you sure you want to restart the control-panel service?')) return;
+    setIsRestartingService(true);
+    try {
+      const res = await fetch(`${STATS_API_BASE_URL}/api/restart-service`, { method: 'POST' });
+      if (!res.ok) throw new Error(`Error: ${res.status}`);
+      alert('Service restart initiated. The page may disconnect briefly.');
+    } catch (err) {
+      console.error(err);
+      alert('Failed to restart service.');
+    } finally {
+      setIsRestartingService(false);
+    }
+  };
+
+  const handleRebootSystem = async () => {
+    if (!window.confirm('Are you sure you want to reboot the Jetson device?')) return;
+    setIsRebootingSystem(true);
+    try {
+      const res = await fetch(`${STATS_API_BASE_URL}/api/reboot-system`, { method: 'POST' });
+      if (!res.ok) throw new Error(`Error: ${res.status}`);
+      alert('Reboot command sent. The device will restart shortly.');
+    } catch (err) {
+      console.error(err);
+      alert('Failed to reboot system.');
+    } finally {
+      setIsRebootingSystem(false);
+    }
+  };
+
   return (
     <div className="bg-gray-900 text-white font-sans min-h-screen flex flex-col">
       <header className="bg-gray-900/80 backdrop-blur-sm border-b border-gray-700/50 sticky top-0 z-10">
         <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-3 flex justify-between items-center">
+          {/* Left: Logo + Title */}
           <div className="flex items-center gap-3">
             <svg className="w-8 h-8 text-green-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M14.213 1.001C8.46 1.001 4.088 4.623 3.55 9.773A1.002 1.002 0 0 0 4.548 11h3.918c.27 0 .52-.109.701-.289.182-.182.29-.432.29-.711 0-.551.449-1 1-1s1 .449 1 1c0 .279.108.529.29.711.18.18.43.289.7.289h3.919a1 1 0 0 0 .997-1.227C20.08 4.623 15.71 1 10 1h4.213Z"/><path d="M19.451 13H4.549a1 1 0 0 0-.998 1.227c.537 5.15 4.91 8.773 10.663 8.773h4.213c5.753 0 10.125-3.622 10.663-8.773A1 1 0 0 0 19.452 13Z"/></svg>
             <h1 className="text-xl font-bold text-gray-100">Jetson Ollama Control Panel</h1>
           </div>
-          <div className={`w-3 h-3 rounded-full animate-pulse ${statsError ? 'bg-red-500' : 'bg-green-500'}`} title={statsError ? statsError : 'Connected to Stats Helper'}></div>
+          {/* Right: Admin buttons + connection indicator */}
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleRestartService}
+              disabled={isRestartingService}
+              className="bg-red-700 hover:bg-red-800 disabled:bg-red-900/50 disabled:cursor-not-allowed text-white px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors shadow-sm"
+            >
+              {isRestartingService ? 'Restarting…' : 'Restart Service'}
+            </button>
+            <button
+              onClick={handleRebootSystem}
+              disabled={isRebootingSystem}
+              className="bg-red-700 hover:bg-red-800 disabled:bg-red-900/50 disabled:cursor-not-allowed text-white px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors shadow-sm"
+            >
+              {isRebootingSystem ? 'Rebooting…' : 'Reboot Jetson'}
+            </button>
+            <div
+              className={`w-3 h-3 rounded-full animate-pulse ${statsError ? 'bg-red-500' : 'bg-green-500'}`}
+              title={statsError ? statsError : 'Connected to Stats Helper'}
+            ></div>
+          </div>
         </div>
       </header>
       

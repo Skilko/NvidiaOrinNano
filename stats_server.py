@@ -84,6 +84,40 @@ def get_system_stats():
     except Exception as e:
         return jsonify({"error": "An unexpected error occurred", "details": str(e)}), 500
 
+# ---------------------------------------------------------------------------
+# New API endpoints for administrative actions
+# ---------------------------------------------------------------------------
+
+# IMPORTANT: These endpoints execute privileged system commands. Ensure the
+# process running this Flask app has the required permissions (e.g., via the
+# systemd service file with the necessary capabilities or by running as root).
+
+@app.route('/api/restart-service', methods=['POST'])
+def restart_service():
+    """Restart the control-panel systemd service."""
+    try:
+        # Optionally verify a shared secret or token here for security.
+        subprocess.check_call(['systemctl', 'restart', 'ollama-panel.service'])
+        return jsonify({"status": "Service restart initiated"}), 200
+    except subprocess.CalledProcessError as e:
+        return jsonify({"error": "Failed to restart service", "details": str(e)}), 500
+    except FileNotFoundError as e:
+        return jsonify({"error": "systemctl not found", "details": str(e)}), 500
+    except Exception as e:
+        return jsonify({"error": "Unexpected error", "details": str(e)}), 500
+
+@app.route('/api/reboot-system', methods=['POST'])
+def reboot_system():
+    """Reboot the Jetson device (Orin Nano)."""
+    try:
+        # Using 'systemctl reboot' instead of 'reboot' for a clean shutdown.
+        subprocess.Popen(['systemctl', 'reboot'])
+        return jsonify({"status": "System reboot initiated"}), 200
+    except FileNotFoundError as e:
+        return jsonify({"error": "systemctl not found", "details": str(e)}), 500
+    except Exception as e:
+        return jsonify({"error": "Unexpected error", "details": str(e)}), 500
+
 if __name__ == '__main__':
     print("Starting Jetson Stats Server on http://localhost:5001")
     # Host 0.0.0.0 makes it accessible from other devices on your network
