@@ -493,6 +493,11 @@ export default function App() {
                 {!memOk && (
                   <p className="text-xs text-red-400 mt-1">Not enough free RAM to run this model right now.</p>
                 )}
+                {/* Link to Ollama Library */}
+                <p className="text-sm text-gray-400 mb-4">
+                    Need a model name? Browse the{' '}
+                    <a href="https://ollama.com/library" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">Ollama Library</a>.
+                </p>
                 </div>
               )}
             </div>
