@@ -46,6 +46,15 @@ need_cmd pip3 python3-pip
 need_cmd node nodejs
 need_cmd npm npm
 
+# 1.1 Ensure Ollama is installed and running ------------------------------------
+if ! command -v ollama >/dev/null 2>&1; then
+  log "Installing Ollama..."
+  curl -fsSL https://ollama.com/install.sh | sh
+fi
+
+log "Starting Ollama service..."
+./start_ollama.sh
+
 # 2. Pull latest code -----------------------------------------------------------
 log "Pulling latest code from git"
 current_branch=$(git rev-parse --abbrev-ref HEAD)

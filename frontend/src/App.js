@@ -220,8 +220,15 @@ export default function App() {
     try {
         const response = await fetch(`${OLLAMA_API_BASE_URL}/api/pull`, {
             method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
             body: JSON.stringify({ name: pullModelName, stream: true }),
         });
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
 
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
@@ -233,12 +240,16 @@ export default function App() {
             // In a real app, you'd parse each line of the chunk for detailed status
             const lines = chunk.split('\n').filter(line => line.trim() !== '');
             lines.forEach(line => {
-                const json = JSON.parse(line);
-                if (json.total && json.completed) {
-                    const percent = Math.round((json.completed / json.total) * 100);
-                    setPullStatus(`Downloading... ${percent}%`);
-                } else if(json.status) {
-                    setPullStatus(json.status);
+                try {
+                    const json = JSON.parse(line);
+                    if (json.total && json.completed) {
+                        const percent = Math.round((json.completed / json.total) * 100);
+                        setPullStatus(`Downloading... ${percent}%`);
+                    } else if(json.status) {
+                        setPullStatus(json.status);
+                    }
+                } catch (parseError) {
+                    console.warn("Failed to parse JSON line:", line, parseError);
                 }
             });
         }
