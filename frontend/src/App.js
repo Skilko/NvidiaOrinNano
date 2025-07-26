@@ -4,6 +4,9 @@ import remarkGfm from 'remark-gfm';
 import remarkBreaks from 'remark-breaks';
 
 // --- Configuration ---
+// Application version - increment this when making updates
+const APP_VERSION = 'v0.1.1';
+
 // Base URLs for APIs ---------------------------------------------------------
 // If you set environment variables `REACT_APP_OLLAMA_API_URL` or
 // `REACT_APP_STATS_API_URL` these values will be used. Otherwise we fall back
@@ -579,6 +582,9 @@ export default function App() {
           </div>
           {/* Right: Admin buttons + connection indicator */}
           <div className="flex items-center gap-3">
+            <span className="text-xs text-gray-400 bg-gray-800/50 px-2 py-1 rounded border border-gray-700/50">
+              {APP_VERSION}
+            </span>
             <button
               onClick={handleRestartService}
               disabled={isRestartingService}
