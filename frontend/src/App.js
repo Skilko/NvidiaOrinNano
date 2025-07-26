@@ -156,6 +156,32 @@ export default function App() {
 
   // --- API Functions ---
 
+  // Check Ollama service connectivity
+  const checkOllamaStatus = useCallback(async () => {
+    try {
+      console.log('[OLLAMA_STATUS] Checking Ollama service connectivity...');
+      const response = await fetch(`${OLLAMA_API_BASE_URL}/api/version`, {
+        method: 'GET',
+        signal: AbortSignal.timeout(5000) // 5 second timeout
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        console.log('[OLLAMA_STATUS] Ollama service is accessible:', data);
+        setOllamaStatus('connected');
+        return true;
+      } else {
+        console.warn(`[OLLAMA_STATUS] Ollama returned ${response.status}: ${response.statusText}`);
+        setOllamaStatus('error');
+        return false;
+      }
+    } catch (error) {
+      console.error('[OLLAMA_STATUS] Failed to connect to Ollama service:', error);
+      setOllamaStatus('error');
+      return false;
+    }
+  }, []);
+
   // Fetch system stats from our Python helper
   const fetchStats = useCallback(async () => {
     try {
@@ -544,32 +570,6 @@ export default function App() {
       setIsRebootingSystem(false);
     }
   };
-
-  // Check Ollama service connectivity
-  const checkOllamaStatus = useCallback(async () => {
-    try {
-      console.log('[OLLAMA_STATUS] Checking Ollama service connectivity...');
-      const response = await fetch(`${OLLAMA_API_BASE_URL}/api/version`, {
-        method: 'GET',
-        signal: AbortSignal.timeout(5000) // 5 second timeout
-      });
-      
-      if (response.ok) {
-        const data = await response.json();
-        console.log('[OLLAMA_STATUS] Ollama service is accessible:', data);
-        setOllamaStatus('connected');
-        return true;
-      } else {
-        console.warn(`[OLLAMA_STATUS] Ollama returned ${response.status}: ${response.statusText}`);
-        setOllamaStatus('error');
-        return false;
-      }
-    } catch (error) {
-      console.error('[OLLAMA_STATUS] Failed to connect to Ollama service:', error);
-      setOllamaStatus('error');
-      return false;
-    }
-  }, []);
 
   return (
     <div className="bg-gray-900 text-white font-sans min-h-screen flex flex-col">
