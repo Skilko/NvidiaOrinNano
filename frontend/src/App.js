@@ -147,6 +147,9 @@ export default function App() {
   // Administrative action loading flags
   const [isRestartingService, setIsRestartingService] = useState(false);
   const [isRebootingSystem, setIsRebootingSystem] = useState(false);
+  
+  // Ollama service connectivity state
+  const [ollamaStatus, setOllamaStatus] = useState('checking'); // 'checking', 'connected', 'error'
 
   // --- API Functions ---
 
@@ -169,17 +172,50 @@ export default function App() {
 
   // Fetch list of locally available Ollama models
   const fetchModels = useCallback(async () => {
+    console.log('[FETCH_MODELS] Starting to fetch models from Ollama API...');
     try {
       const response = await fetch(`${OLLAMA_API_BASE_URL}/api/tags`);
+      console.log(`[FETCH_MODELS] Response status: ${response.status} ${response.statusText}`);
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`[FETCH_MODELS] Failed with status ${response.status}:`, errorText);
+        throw new Error(`Failed to fetch models: ${response.status} ${response.statusText}`);
+      }
+      
       const data = await response.json();
-      setModels(data.models);
-      // Automatically select the first model if none is selected
-      if (!selectedModel && data.models.length > 0) {
-        setSelectedModel(data.models[0].name);
-        setSelectedModelInfo(data.models[0]);
+      console.log('[FETCH_MODELS] Raw response data:', data);
+      console.log(`[FETCH_MODELS] Found ${data.models ? data.models.length : 0} models`);
+      
+      if (data.models && Array.isArray(data.models)) {
+        data.models.forEach((model, index) => {
+          console.log(`[FETCH_MODELS] Model ${index + 1}:`, {
+            name: model.name,
+            size: model.size,
+            sizeGB: (model.size / 1e9).toFixed(2) + 'GB',
+            modified_at: model.modified_at,
+            digest: model.digest?.substring(0, 12) + '...'
+          });
+        });
+        
+        // Check specifically for gemma3n models
+        const gemma3nModels = data.models.filter(m => m.name.includes('gemma3n'));
+        console.log(`[FETCH_MODELS] Found ${gemma3nModels.length} gemma3n models:`, gemma3nModels.map(m => m.name));
+        
+        setModels(data.models);
+        // Automatically select the first model if none is selected
+        if (!selectedModel && data.models.length > 0) {
+          console.log(`[FETCH_MODELS] Auto-selecting first model: ${data.models[0].name}`);
+          setSelectedModel(data.models[0].name);
+          setSelectedModelInfo(data.models[0]);
+        }
+      } else {
+        console.warn('[FETCH_MODELS] No models array in response or invalid format');
+        setModels([]);
       }
     } catch (error) {
-      console.error("Failed to fetch Ollama models:", error);
+      console.error("[FETCH_MODELS] Failed to fetch Ollama models:", error);
+      // Don't clear models on error to avoid flickering
     }
   }, [selectedModel]);
   
@@ -187,11 +223,12 @@ export default function App() {
 
   // Initial data fetch and interval for stats
   useEffect(() => {
+    checkOllamaStatus();
     fetchModels();
     fetchStats();
     const interval = setInterval(fetchStats, 500); // Refresh stats ~2× per second
     return () => clearInterval(interval);
-  }, [fetchModels, fetchStats]);
+  }, [fetchModels, fetchStats, checkOllamaStatus]);
 
   // Scroll to the bottom of the chat on new message
   useEffect(() => {
@@ -215,41 +252,100 @@ export default function App() {
   const handlePullModel = async (e) => {
     e.preventDefault();
     if (!pullModelName) return;
+    
+    // Check Ollama connectivity first
+    console.log(`[MODEL_PULL] Checking Ollama connectivity before pulling ${pullModelName}...`);
+    const isConnected = await checkOllamaStatus();
+    if (!isConnected) {
+      setPullStatus('Error: Cannot connect to Ollama service. Please check if it\'s running.');
+      setTimeout(() => setPullStatus(''), 5000);
+      return;
+    }
+    
     setIsStreaming(true);
     setPullStatus(`Pulling model: ${pullModelName}...`);
+    console.log(`[MODEL_PULL] Starting pull for model: ${pullModelName}`);
+    
     try {
         const response = await fetch(`${OLLAMA_API_BASE_URL}/api/pull`, {
             method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
             body: JSON.stringify({ name: pullModelName, stream: true }),
         });
 
+        console.log(`[MODEL_PULL] Response status: ${response.status} ${response.statusText}`);
+        
+        // Check if the response is successful
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error(`[MODEL_PULL] Failed with status ${response.status}:`, errorText);
+            throw new Error(`Failed to pull model: ${response.status} ${response.statusText}. ${errorText}`);
+        }
+
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
+        let hasProgress = false;
 
         while (true) {
             const { done, value } = await reader.read();
             if (done) break;
+            
             const chunk = decoder.decode(value);
+            console.log(`[MODEL_PULL] Received chunk:`, chunk);
+            
             // In a real app, you'd parse each line of the chunk for detailed status
             const lines = chunk.split('\n').filter(line => line.trim() !== '');
             lines.forEach(line => {
-                const json = JSON.parse(line);
-                if (json.total && json.completed) {
-                    const percent = Math.round((json.completed / json.total) * 100);
-                    setPullStatus(`Downloading... ${percent}%`);
-                } else if(json.status) {
-                    setPullStatus(json.status);
+                try {
+                    const json = JSON.parse(line);
+                    console.log(`[MODEL_PULL] Parsed JSON:`, json);
+                    
+                    if (json.error) {
+                        console.error(`[MODEL_PULL] Error in stream:`, json.error);
+                        throw new Error(`Model pull error: ${json.error}`);
+                    }
+                    
+                    if (json.total && json.completed) {
+                        hasProgress = true;
+                        const percent = Math.round((json.completed / json.total) * 100);
+                        setPullStatus(`Downloading... ${percent}%`);
+                        console.log(`[MODEL_PULL] Progress: ${percent}%`);
+                    } else if (json.status) {
+                        setPullStatus(json.status);
+                        console.log(`[MODEL_PULL] Status: ${json.status}`);
+                        
+                        // Check for completion indicators
+                        if (json.status.toLowerCase().includes('success') || 
+                            json.status.toLowerCase().includes('complete') ||
+                            json.status.toLowerCase().includes('pulled')) {
+                            hasProgress = true;
+                        }
+                    }
+                } catch (parseError) {
+                    console.warn(`[MODEL_PULL] Failed to parse JSON line:`, line, parseError);
+                    // Continue processing other lines instead of breaking
                 }
             });
         }
+        
+        console.log(`[MODEL_PULL] Stream completed for ${pullModelName}, hasProgress:`, hasProgress);
         setPullStatus('Model pulled successfully!');
-        fetchModels(); // Refresh model list
+        
+        // Wait a moment before refreshing to ensure the model is fully registered
+        console.log(`[MODEL_PULL] Waiting 2 seconds before refreshing models list...`);
+        setTimeout(() => {
+            console.log(`[MODEL_PULL] Refreshing models list...`);
+            fetchModels();
+        }, 2000);
+        
     } catch (error) {
-        console.error("Failed to pull model:", error);
-        setPullStatus('Error pulling model.');
+        console.error(`[MODEL_PULL] Failed to pull model ${pullModelName}:`, error);
+        setPullStatus(`Error pulling model: ${error.message}`);
     } finally {
         setIsStreaming(false);
-        setTimeout(() => setPullStatus(''), 3000); // Clear status after a while
+        setTimeout(() => setPullStatus(''), 5000); // Keep error messages visible longer
     }
 };
 
@@ -446,6 +542,32 @@ export default function App() {
     }
   };
 
+  // Check Ollama service connectivity
+  const checkOllamaStatus = useCallback(async () => {
+    try {
+      console.log('[OLLAMA_STATUS] Checking Ollama service connectivity...');
+      const response = await fetch(`${OLLAMA_API_BASE_URL}/api/version`, {
+        method: 'GET',
+        signal: AbortSignal.timeout(5000) // 5 second timeout
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        console.log('[OLLAMA_STATUS] Ollama service is accessible:', data);
+        setOllamaStatus('connected');
+        return true;
+      } else {
+        console.warn(`[OLLAMA_STATUS] Ollama returned ${response.status}: ${response.statusText}`);
+        setOllamaStatus('error');
+        return false;
+      }
+    } catch (error) {
+      console.error('[OLLAMA_STATUS] Failed to connect to Ollama service:', error);
+      setOllamaStatus('error');
+      return false;
+    }
+  }, []);
+
   return (
     <div className="bg-gray-900 text-white font-sans min-h-screen flex flex-col">
       <header className="bg-gray-900/80 backdrop-blur-sm border-b border-gray-700/50 sticky top-0 z-10">
@@ -507,7 +629,21 @@ export default function App() {
 
             <div className="bg-gray-800/60 rounded-2xl border border-gray-700/50 overflow-hidden">
                 <button onClick={()=>setShowModelMgmt(!showModelMgmt)} className="w-full flex justify-between items-center px-5 py-3 bg-gray-800/70 hover:bg-gray-800 text-lg font-semibold text-blue-400">
-                  <span>Model Management</span>
+                  <div className="flex items-center gap-2">
+                    <span>Model Management</span>
+                    <div
+                      className={`w-2 h-2 rounded-full ${
+                        ollamaStatus === 'connected' ? 'bg-green-500' : 
+                        ollamaStatus === 'error' ? 'bg-red-500 animate-pulse' : 
+                        'bg-yellow-500 animate-pulse'
+                      }`}
+                      title={
+                        ollamaStatus === 'connected' ? 'Ollama service connected' : 
+                        ollamaStatus === 'error' ? 'Ollama service not accessible' : 
+                        'Checking Ollama service...'
+                      }
+                    ></div>
+                  </div>
                   <span>{showModelMgmt ? '▾':'▸'}</span>
                 </button>
               {showModelMgmt && (
@@ -526,7 +662,19 @@ export default function App() {
                 </form>
                 {pullStatus && <div className="text-sm text-center text-yellow-300 mb-4">{pullStatus}</div>}
                 
-                <h3 className="text-md font-semibold mb-2 text-gray-300">Available Models</h3>
+                <div className="flex justify-between items-center mb-2">
+                  <h3 className="text-md font-semibold text-gray-300">Available Models</h3>
+                  <button 
+                    onClick={() => {
+                      console.log('[MANUAL_REFRESH] User triggered manual models refresh');
+                      fetchModels();
+                    }}
+                    className="bg-gray-600 hover:bg-gray-700 text-white px-2 py-1 rounded text-xs font-semibold transition-colors"
+                    title="Refresh models list"
+                  >
+                    ↻ Refresh
+                  </button>
+                </div>
                 <div className="max-h-48 overflow-y-auto pr-2">
                   {models.length > 0 ? (
                     models.map(model => (
