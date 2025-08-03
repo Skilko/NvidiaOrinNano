@@ -54,12 +54,27 @@ if [[ "$current_branch" != "main" ]]; then
 fi
 
 git fetch origin
+
+# Check for uncommitted changes and stash them if necessary
+if ! git diff-index --quiet HEAD --; then
+  warn "Local changes detected. Stashing changes to avoid merge conflicts."
+  git stash push -m "Auto-stash from deploy_and_run.sh $(date)"
+  STASHED_CHANGES=true
+else
+  STASHED_CHANGES=false
+fi
+
 if ! git merge-base --is-ancestor HEAD origin/main; then
-  warn "Local changes detected – performing a fast-forward pull where possible."
+  warn "Performing a fast-forward pull where possible."
 fi
 
 git pull --ff-only origin main || {
   err "Fast-forward pull failed. Please resolve git issues manually."; exit 1; }
+
+# Inform user about stashed changes
+if [[ "$STASHED_CHANGES" == "true" ]]; then
+  warn "Local changes were automatically stashed. Use 'git stash list' and 'git stash pop' to review/restore if needed."
+fi
 
 # 2c. Ensure key scripts have execute permission (in case git resets them)
 chmod +x "$REPO_DIR/deploy_and_run.sh"
