@@ -5,7 +5,7 @@ import remarkBreaks from 'remark-breaks';
 
 // --- Configuration ---
 // Application version - increment this when making updates
-const APP_VERSION = 'v0.1.1';
+const APP_VERSION = 'v0.1.2';
 
 // Base URLs for APIs ---------------------------------------------------------
 // If you set environment variables `REACT_APP_OLLAMA_API_URL` or
@@ -119,6 +119,52 @@ const ChatMessage = ({ message }) => {
     );
 };
 
+// RAM Warning Modal Component
+const RAMWarningModal = ({ isOpen, onContinue, onReturn, modelName, modelSize, freeRAM }) => {
+  if (!isOpen) return null;
+  
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-gray-800 rounded-2xl border border-gray-700 max-w-md w-full p-6">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-12 h-12 rounded-full bg-yellow-500/20 flex items-center justify-center">
+            <svg className="w-6 h-6 text-yellow-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z"></path>
+            </svg>
+          </div>
+          <div>
+            <h3 className="text-lg font-semibold text-white">Insufficient RAM Warning</h3>
+            <p className="text-sm text-gray-400">Performance may be unstable</p>
+          </div>
+        </div>
+        
+        <div className="mb-6 text-sm text-gray-300 space-y-2">
+          <p><strong>Model:</strong> {modelName} ({modelSize} GB)</p>
+          <p><strong>Available RAM:</strong> {freeRAM} GB</p>
+          <p className="text-yellow-400 font-medium">
+            ⚠️ There is not enough free RAM to run this model safely. Performance will be unstable and the application will likely crash.
+          </p>
+        </div>
+        
+        <div className="flex gap-3">
+          <button
+            onClick={onReturn}
+            className="flex-1 bg-gray-700 hover:bg-gray-600 text-white px-4 py-2 rounded-xl transition-colors"
+          >
+            Return
+          </button>
+          <button
+            onClick={onContinue}
+            className="flex-1 bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-xl transition-colors font-medium"
+          >
+            Continue at Risk
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // Main App Component
 export default function App() {
   // State Management
@@ -153,6 +199,10 @@ export default function App() {
   
   // Ollama service connectivity state
   const [ollamaStatus, setOllamaStatus] = useState('checking'); // 'checking', 'connected', 'error'
+  
+  // State for handling RAM warning dialog
+  const [showRAMWarning, setShowRAMWarning] = useState(false);
+  const [ramRiskAccepted, setRamRiskAccepted] = useState(false);
 
   // --- API Functions ---
 
@@ -263,6 +313,11 @@ export default function App() {
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [chatHistory]);
+
+  // Reset RAM risk acceptance when model changes
+  useEffect(() => {
+    setRamRiskAccepted(false);
+  }, [selectedModel]);
 
   // Load saved chats on mount
   useEffect(() => {
@@ -389,6 +444,12 @@ export default function App() {
   const handleChatSubmit = async (e) => {
     e.preventDefault();
     if (!prompt || isStreaming || !selectedModel || !selectedModelInfo) return;
+    
+    // Check if RAM is insufficient and user hasn't accepted the risk
+    if (!memOk && !ramRiskAccepted) {
+      setShowRAMWarning(true);
+      return;
+    }
 
     const newUserMessage = { role: 'user', content: prompt };
     const newChatHistory = [...chatHistory, newUserMessage];
@@ -450,6 +511,20 @@ export default function App() {
       streamControllerRef.current = null;
     }
   };
+
+  // Handle RAM warning dialog actions
+  const handleRAMWarningContinue = () => {
+    setRamRiskAccepted(true);
+    setShowRAMWarning(false);
+    // Auto-submit the form now that risk is accepted
+    const form = document.querySelector('form');
+    if (form) form.requestSubmit();
+  };
+
+  const handleRAMWarningReturn = () => {
+    setShowRAMWarning(false);
+    setRamRiskAccepted(false);
+  };
   
   const handleClearChat = () => {
     setChatHistory([]);
@@ -465,6 +540,7 @@ export default function App() {
     }
     setChatHistory([]);
     setCurrentChatId(null);
+    setRamRiskAccepted(false); // Reset RAM risk acceptance for new chat
   }
 
   // NEW: save current chat
@@ -702,7 +778,7 @@ export default function App() {
                   )}
                 </div>
                 {!memOk && (
-                  <p className="text-xs text-red-400 mt-1">Not enough free RAM to run this model right now.</p>
+                  <p className="text-xs text-yellow-400 mt-1">⚠️ Warning: Insufficient RAM may cause performance issues or crashes. You can still proceed at your own risk.</p>
                 )}
                 {/* Link to Ollama Library */}
                 <p className="text-sm text-gray-400 mb-4">
@@ -787,12 +863,12 @@ export default function App() {
                         value={prompt}
                         onChange={(e) => setPrompt(e.target.value)}
                         placeholder={selectedModel ? `Ask ${selectedModel}...` : 'Select a model first'}
-                        disabled={!selectedModel || isStreaming || !memOk}
+                        disabled={!selectedModel || isStreaming}
                         className="w-full bg-gray-700 border border-gray-600 rounded-xl px-4 py-3 focus:ring-2 focus:ring-green-500 focus:outline-none transition-all"
                     />
                     <button 
                         type="submit" 
-                        disabled={!prompt || isStreaming || !selectedModel || !memOk} 
+                        disabled={!prompt || isStreaming || !selectedModel} 
                         className="bg-green-600 hover:bg-green-700 disabled:bg-green-800/50 disabled:cursor-not-allowed text-white rounded-xl p-3 flex-shrink-0 transition-colors shadow-lg hover:shadow-green-500/30">
                         {isStreaming ? (
                              <div className="w-6 h-6 border-2 border-white/50 border-t-white rounded-full animate-spin"></div>
@@ -804,6 +880,16 @@ export default function App() {
             </div>
         </div>
       </main>
+      
+      {/* RAM Warning Modal */}
+      <RAMWarningModal
+        isOpen={showRAMWarning}
+        onContinue={handleRAMWarningContinue}
+        onReturn={handleRAMWarningReturn}
+        modelName={selectedModel}
+        modelSize={selectedModelInfo ? (selectedModelInfo.size / 1e9).toFixed(2) : '0'}
+        freeRAM={systemStats ? ((systemStats.ram_total_gb || 0) - (systemStats.ram_used_gb || 0)).toFixed(2) : '0'}
+      />
     </div>
   );
 }
